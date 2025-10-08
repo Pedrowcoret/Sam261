@@ -79,16 +79,16 @@ const MigrarVideosFTP: React.FC = () => {
   useEffect(() => {
     loadFolders();
     checkConnectionStatus();
-    
-    // Verificar status de migração a cada 5 segundos se estiver migrando
+
+    // Verificar status de migração a cada 3 segundos se estiver migrando
     const interval = setInterval(() => {
       if (isMigrating) {
         checkMigrationStatus();
       }
-    }, 5000);
+    }, 3000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [isMigrating]);
 
   const checkConnectionStatus = async () => {
     try {
@@ -116,24 +116,26 @@ const MigrarVideosFTP: React.FC = () => {
       const response = await fetch('/api/ftp/migration-status', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
           setMigrationStatus(data);
-          setIsMigrating(data.migrating);
-          
+
           // Se migração foi concluída
-          if (data.status === 'completed' && isMigrating) {
+          if (data.status === 'completed' && data.migrating === false) {
             toast.success(`Migração concluída: ${data.completed}/${data.total} arquivos (${data.total_size}MB)`);
             setSelectedFiles([]);
-            setShowMigrationModal(false); // Fechar modal ao concluir
             setIsMigrating(false);
-            loadFolders(); // Recarregar pastas para atualizar espaço usado
-          } else if (data.status === 'error' && isMigrating) {
+            setShowMigrationModal(false);
+            loadFolders();
+          } else if (data.status === 'error') {
             toast.error('Erro na migração. Verifique os detalhes.');
-            setShowMigrationModal(false); // Fechar modal em caso de erro
             setIsMigrating(false);
+            setShowMigrationModal(false);
+          } else {
+            // Atualizar estado de migração
+            setIsMigrating(data.migrating);
           }
         }
       }
@@ -355,6 +357,8 @@ const MigrarVideosFTP: React.FC = () => {
         errorMessage = error.message;
       } else if (typeof error === 'string') {
         errorMessage = error;
+      } else if (error && typeof error === 'object') {
+        errorMessage = String(error);
       }
 
       console.error('Erro na migração:', errorMessage);

@@ -290,6 +290,8 @@ const ConversaoVideos: React.FC = () => {
         errorMessage = error.message;
       } else if (typeof error === 'string') {
         errorMessage = error;
+      } else if (error && typeof error === 'object') {
+        errorMessage = String(error);
       }
 
       console.error('Erro ao iniciar conversão:', errorMessage);
