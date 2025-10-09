@@ -72,6 +72,9 @@ const Dashboard: React.FC = () => {
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [wowzaControlLoading, setWowzaControlLoading] = useState(false);
   const [wowzaStatus, setWowzaStatus] = useState<{running: boolean; message: string} | null>(null);
+  const [playlists, setPlaylists] = useState<any[]>([]);
+  const [selectedPlaylist, setSelectedPlaylist] = useState<string>('');
+  const [startingPlaylist, setStartingPlaylist] = useState(false);
 
   // Para revendas, usar effective_user_id
   const effectiveUserId = user?.effective_user_id || user?.id;
@@ -80,6 +83,7 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     loadDashboardData();
     checkWowzaStatus();
+    loadPlaylists();
 
     // Atualizar dados a cada 60 segundos (reduzido para melhor performance)
     const interval = setInterval(() => {
@@ -364,19 +368,19 @@ const Dashboard: React.FC = () => {
   const loadRecentVideos = async () => {
     try {
       const token = await getToken();
-      
+
       // Tentar carregar vídeos da primeira pasta disponível
       const foldersResponse = await fetch('/api/folders', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (foldersResponse.ok) {
         const folders = await foldersResponse.json();
         if (folders.length > 0) {
           const videosResponse = await fetch(`/api/videos?folder_id=${folders[0].id}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
-          
+
           if (videosResponse.ok) {
             const videos = await videosResponse.json();
             setRecentVideos(Array.isArray(videos) ? videos.slice(0, 5) : []);
@@ -385,6 +389,70 @@ const Dashboard: React.FC = () => {
       }
     } catch (error) {
       console.error('Erro ao carregar vídeos recentes:', error);
+    }
+  };
+
+  const loadPlaylists = async () => {
+    try {
+      const token = await getToken();
+      const response = await fetch('/api/playlists', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPlaylists(Array.isArray(data) ? data : []);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar playlists:', error);
+    }
+  };
+
+  const handleStartPlaylist = async () => {
+    if (!selectedPlaylist) {
+      toast.error('Selecione uma playlist primeiro');
+      return;
+    }
+
+    const playlist = playlists.find(p => p.id.toString() === selectedPlaylist);
+    if (!playlist) {
+      toast.error('Playlist não encontrada');
+      return;
+    }
+
+    setStartingPlaylist(true);
+    try {
+      const token = await getToken();
+      const response = await fetch('/api/streaming/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          titulo: `Transmissão: ${playlist.nome}`,
+          descricao: 'Transmissão iniciada via Dashboard',
+          playlist_id: parseInt(selectedPlaylist),
+          enable_recording: false,
+          use_smil: true,
+          loop_playlist: true
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast.success(`Playlist "${playlist.nome}" iniciada com sucesso!`);
+        setSelectedPlaylist('');
+        loadStreamStatus();
+      } else {
+        toast.error(result.error || 'Erro ao iniciar playlist');
+      }
+    } catch (error) {
+      console.error('Erro ao iniciar playlist:', error);
+      toast.error('Erro ao iniciar playlist');
+    } finally {
+      setStartingPlaylist(false);
     }
   };
 
@@ -629,12 +697,12 @@ const Dashboard: React.FC = () => {
               </div>
               </div>
 
-              {/* Controles Wowza - 1 coluna */}
+              {/* Controle de Streaming - 1 coluna */}
               <div className="lg:col-span-1 space-y-3">
                 <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-200">
                   <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center">
                     <Server className="h-4 w-4 mr-2" />
-                    Servidor Wowza
+                    Controle de Streaming
                   </h3>
 
                   {wowzaStatus && (
@@ -689,6 +757,42 @@ const Dashboard: React.FC = () => {
                       <span className="text-sm font-medium">Reiniciar</span>
                     </button>
                   </div>
+                </div>
+
+                {/* Iniciar Playlist */}
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border-2 border-blue-200">
+                  <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center">
+                    <Play className="h-4 w-4 mr-2" />
+                    Iniciar Playlist
+                  </h3>
+                  <select
+                    value={selectedPlaylist}
+                    onChange={(e) => setSelectedPlaylist(e.target.value)}
+                    disabled={startingPlaylist || streamStatus?.is_live}
+                    className="w-full px-3 py-2 mb-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="">Selecione uma playlist</option>
+                    {playlists.map((playlist) => (
+                      <option key={playlist.id} value={playlist.id.toString()}>
+                        {playlist.nome} ({playlist.total_videos || 0} vídeos)
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleStartPlaylist}
+                    disabled={!selectedPlaylist || startingPlaylist || streamStatus?.is_live}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Iniciar transmissão da playlist selecionada"
+                  >
+                    {startingPlaylist ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
+                    <span className="text-sm font-medium">
+                      {startingPlaylist ? 'Iniciando...' : 'Transmitir'}
+                    </span>
+                  </button>
                 </div>
 
                 {/* Botão Parar Stream - Separado e sempre ativo */}
